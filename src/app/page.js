@@ -2,20 +2,21 @@
 
 import { useEffect, useRef } from "react";
 import mapboxgl from "mapbox-gl";
+import "mapbox-gl/dist/mapbox-gl.css";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
 export default function Home() {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
-
+  //initializes map only once
   useEffect(() => {
-    if (mapRef.current) return; // prevent re-init
+    if (mapRef.current) return;
 
     mapRef.current = new mapboxgl.Map({
       container: mapContainerRef.current,
       style: "mapbox://styles/mapbox/dark-v11",
-      center: [-114.0719, 51.0447], // Calgary Originally
+      center: [-114.0719, 51.0447], // Calgary Originally (Will get from API later for other options)
       zoom: 8,
     });
     mapRef.current.on("load", () => {
@@ -40,21 +41,28 @@ export default function Home() {
         const response = await fetch("/api/flights?region=calgary");
         const data = await response.json();
         const aircraft = data.aircraft;
-        const feature = {
+        const featureArray = aircraft.map((aircraft) => ({
           type: "Feature",
           geometry: {
             type: "Point",
-            coordinates: [longitude, latitude],
+            coordinates: [aircraft.longitude, aircraft.latitude],
           },
           properties: {
-            callsign,
-            altitudeMeters,
-            velocityMetersPerSecond,
-            headingDegrees,
-            isOnGround,
+            aircraftIcao24: aircraft.aircraftIcao24,
+            callsign: aircraft.flightCallsign,
+            altitudeMeters: aircraft.altitudeMeters,
+            velocityMetersPerSecond: aircraft.velocityMetersPerSecond,
+            headingDegrees: aircraft.headingDegrees,
+            isOnGround: aircraft.isOnGround,
           },
+        }));
+        const featureCollection = {
+          type: "FeatureCollection",
+          features: featureArray,
         };
+        mapRef.current.getSource("flights").setData(featureCollection);
       }
+      fetchFlightData();
     });
   }, []);
   return (
