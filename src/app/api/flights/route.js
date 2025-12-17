@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 /*
  * Reference:
@@ -11,57 +14,33 @@ export const runtime = "nodejs";
  * The OpenSky Network, https://opensky-network.org
  */
 
-export const dynamic = "force-dynamic";
-
-/**
- * Preset geographic map boxes for supported regions.
- * These are used to limit OpenSky queries for performance and usability.
- */
 const REGION_MAP_BOXES = {
   calgary: {
-    label: "Calgary (Default)",
     minimumLatitude: 50.0,
     maximumLatitude: 52.3,
     minimumLongitude: -115.8,
     maximumLongitude: -112.6,
-    mapCenterLongitude: -114.0719,
-    mapCenterLatitude: 51.0447,
-    mapZoom: 8,
   },
   alberta: {
-    label: "Alberta",
     minimumLatitude: 48.8,
     maximumLatitude: 60.0,
     minimumLongitude: -120.0,
     maximumLongitude: -109.0,
-    mapCenterLongitude: -114.5,
-    mapCenterLatitude: 54.5,
-    mapZoom: 5.2,
   },
   vancouver: {
-    label: "Vancouver / Lower Mainland",
     minimumLatitude: 48.6,
     maximumLatitude: 50.6,
     minimumLongitude: -124.0,
     maximumLongitude: -121.0,
-    mapCenterLongitude: -123.1207,
-    mapCenterLatitude: 49.2827,
-    mapZoom: 8,
   },
   toronto: {
-    label: "Toronto / GTA",
     minimumLatitude: 43.0,
     maximumLatitude: 44.4,
     minimumLongitude: -80.4,
     maximumLongitude: -78.5,
-    mapCenterLongitude: -79.3832,
-    mapCenterLatitude: 43.6532,
-    mapZoom: 8,
   },
 };
 
-// IMPORTANT: These are approximate average elevations for the regions, used for
-// calculating relative altitude of aircraft
 const REGION_ELEVATIONS_METERS = {
   calgary: 1084,
   alberta: 900,
@@ -69,26 +48,24 @@ const REGION_ELEVATIONS_METERS = {
   toronto: 76,
 };
 
-/**
- * OpenSky OAuth2 Client Credentials token.
- */
+/* ------------------ OpenSky OAuth ------------------ */
+
 let cachedOpenSkyAccessToken = null;
 let cachedOpenSkyAccessTokenExpiresAtMs = 0;
 
 async function getOpenSkyAccessToken() {
-  const openSkyClientId = process.env.OPENSKY_CLIENT_ID;
-  const openSkyClientSecret = process.env.OPENSKY_CLIENT_SECRET;
+  const clientId = process.env.OPENSKY_CLIENT_ID;
+  const clientSecret = process.env.OPENSKY_CLIENT_SECRET;
 
-  if (!openSkyClientId || !openSkyClientSecret) {
+  if (!clientId || !clientSecret) {
     throw new Error("Missing OPENSKY_CLIENT_ID or OPENSKY_CLIENT_SECRET");
   }
 
-  const currentTimeMs = Date.now();
+  const now = Date.now();
 
-  // Reuse token if still valid (30s safety buffer)
   if (
     cachedOpenSkyAccessToken &&
-    currentTimeMs < cachedOpenSkyAccessTokenExpiresAtMs - 30_000
+    now < cachedOpenSkyAccessTokenExpiresAtMs - 30_000
   ) {
     return cachedOpenSkyAccessToken;
   }
@@ -100,146 +77,138 @@ async function getOpenSkyAccessToken() {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "client_credentials",
-        client_id: openSkyClientId,
-        client_secret: openSkyClientSecret,
+        client_id: clientId,
+        client_secret: clientSecret,
       }),
       cache: "no-store",
     }
   );
 
   if (!tokenResponse.ok) {
-    const tokenErrorBodyText = await tokenResponse.text();
-    throw new Error(
-      `OpenSky token request failed: ${
-        tokenResponse.status
-      } ${tokenErrorBodyText.slice(0, 300)}`
-    );
+    const body = await tokenResponse.text();
+    throw new Error(`Token request failed: ${tokenResponse.status} ${body}`);
   }
 
   const tokenJson = await tokenResponse.json();
 
-  cachedOpenSkyAccessToken = tokenJson.access_token ?? null;
-
-  const expiresInSeconds = Number(tokenJson.expires_in ?? 1800);
+  cachedOpenSkyAccessToken = tokenJson.access_token;
   cachedOpenSkyAccessTokenExpiresAtMs =
-    currentTimeMs + Math.max(0, expiresInSeconds) * 1000;
-
-  if (!cachedOpenSkyAccessToken) {
-    throw new Error("OpenSky token response missing access_token");
-  }
+    now + Number(tokenJson.expires_in ?? 1800) * 1000;
 
   return cachedOpenSkyAccessToken;
 }
 
+/* ------------------ Fetch with timeout + retry ------------------ */
+
+async function fetchWithTimeoutAndRetry(
+  url,
+  options,
+  timeoutMs = 30_000,
+  retries = 2
+) {
+  let lastError;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      lastError = err;
+      await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+    }
+  }
+
+  throw lastError;
+}
+
+/* ------------------ API Route ------------------ */
+
 export async function GET(request) {
-  const requestUrl = new URL(request.url);
-  const requestedRegionKey = (
-    requestUrl.searchParams.get("region") || "calgary"
-  ).toLowerCase();
-
-  const selectedRegion =
-    REGION_MAP_BOXES[requestedRegionKey] || REGION_MAP_BOXES.calgary;
-
-  const regionReferenceElevationMeters =
-    REGION_ELEVATIONS_METERS[requestedRegionKey] ??
-    REGION_ELEVATIONS_METERS.calgary;
-
-  const openSkyApiUrl =
-    `https://opensky-network.org/api/states/all` +
-    `?lamin=${selectedRegion.minimumLatitude}` +
-    `&lamax=${selectedRegion.maximumLatitude}` +
-    `&lomin=${selectedRegion.minimumLongitude}` +
-    `&lomax=${selectedRegion.maximumLongitude}`;
-
   try {
-    const openSkyAccessToken = await getOpenSkyAccessToken();
+    const url = new URL(request.url);
+    const regionKey = (url.searchParams.get("region") || "calgary").toLowerCase();
 
-    const openSkyResponse = await fetch(openSkyApiUrl, {
-      cache: "no-store",
-      headers: {
-        Authorization: `Bearer ${openSkyAccessToken}`,
+    const region = REGION_MAP_BOXES[regionKey] || REGION_MAP_BOXES.calgary;
+    const regionElevation =
+      REGION_ELEVATIONS_METERS[regionKey] ??
+      REGION_ELEVATIONS_METERS.calgary;
+
+    const openSkyApiUrl =
+      `https://opensky-network.org/api/states/all` +
+      `?lamin=${region.minimumLatitude}` +
+      `&lamax=${region.maximumLatitude}` +
+      `&lomin=${region.minimumLongitude}` +
+      `&lomax=${region.maximumLongitude}`;
+
+    const accessToken = await getOpenSkyAccessToken();
+
+    const response = await fetchWithTimeoutAndRetry(
+      openSkyApiUrl,
+      {
+        cache: "no-store",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
       },
-    });
+      30_000,
+      2
+    );
 
-    // log the upstream status code
-    console.log("OpenSky status:", openSkyResponse.status);
-
-    if (!openSkyResponse.ok) {
-      const upstreamBodyText = await openSkyResponse.text();
-      console.log("OpenSky error body:", upstreamBodyText.slice(0, 300));
-
-      // Return the upstream status so frontend can react (e.g., 429 Too Many Request, I ran out of calls before I made an account)
+    if (!response.ok) {
       return NextResponse.json(
-        { aircraft: [], error: "Failed to fetch data from OpenSky Network" },
-        { status: openSkyResponse.status }
+        { aircraft: [], error: "OpenSky request failed" },
+        { status: response.status }
       );
     }
 
-    const openSkyData = await openSkyResponse.json();
+    const data = await response.json();
 
-    const aircraft = (openSkyData.states || [])
-      .map((aircraftState) => {
-        const longitude = aircraftState?.[5];
-        const latitude = aircraftState?.[6];
+    const aircraft = (data.states || [])
+      .map((s) => {
+        const lon = s?.[5];
+        const lat = s?.[6];
+        if (typeof lon !== "number" || typeof lat !== "number") return null;
 
-        if (typeof longitude !== "number" || typeof latitude !== "number") {
-          return null;
-        }
-
-        const altitudeMeters =
-          aircraftState?.[13] ?? aircraftState?.[7] ?? null;
-
-        const altitudeAglMeters =
-          typeof altitudeMeters === "number"
-            ? Math.max(
-                0,
-                Math.round(altitudeMeters - regionReferenceElevationMeters)
-              )
-            : null;
+        const altitude = s?.[13] ?? s?.[7] ?? null;
 
         return {
-          aircraftIcao24: aircraftState?.[0],
-          flightCallsign: aircraftState?.[1]?.trim() || null,
-          originCountry: aircraftState?.[2] || null,
-          longitude: longitude,
-          latitude: latitude,
-          altitudeMeters: altitudeMeters,
-          altitudeAglMeters: altitudeAglMeters,
-          isOnGround: Boolean(aircraftState?.[8]),
-          velocityMetersPerSecond: aircraftState?.[9] ?? null,
-          headingDegrees: aircraftState?.[10] ?? 0,
-          verticalRateMetersPerSecond: aircraftState?.[11] ?? null,
-          lastContactTimestamp: aircraftState?.[4] ?? null,
+          aircraftIcao24: s?.[0],
+          flightCallsign: s?.[1]?.trim() || null,
+          originCountry: s?.[2] || null,
+          longitude: lon,
+          latitude: lat,
+          altitudeMeters: altitude,
+          altitudeAglMeters:
+            typeof altitude === "number"
+              ? Math.max(0, Math.round(altitude - regionElevation))
+              : null,
+          isOnGround: Boolean(s?.[8]),
+          velocityMetersPerSecond: s?.[9] ?? null,
+          headingDegrees: s?.[10] ?? 0,
+          verticalRateMetersPerSecond: s?.[11] ?? null,
+          lastContactTimestamp: s?.[4] ?? null,
         };
       })
       .filter(Boolean);
 
     return NextResponse.json({
-      regionKey: requestedRegionKey,
-      region: selectedRegion,
+      regionKey,
       aircraft,
-      dataTimestamp: openSkyData.time ?? null,
+      dataTimestamp: data.time ?? null,
     });
   } catch (error) {
-    console.error("OpenSky fetch threw:", error);
+    console.error("OpenSky API failed:", error);
 
-    const cause = error?.cause;
     return NextResponse.json(
-      {
-        aircraft: [],
-        error: "Unexpected error while fetching aircraft data",
-        debug: String(error?.message || error),
-        cause: cause
-          ? {
-              name: cause.name,
-              code: cause.code,
-              errno: cause.errno,
-              syscall: cause.syscall,
-              address: cause.address,
-              port: cause.port,
-            }
-          : null,
-      },
+      { aircraft: [], error: "Unexpected error while fetching aircraft data" },
       { status: 500 }
     );
   }
