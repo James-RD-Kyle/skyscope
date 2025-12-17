@@ -58,8 +58,9 @@ const REGION_MAP_BOXES = {
     mapZoom: 8,
   },
 };
-//IMPORTANT: These are approximate average elevations for the regions, used for
-//calculating relative altitude of aircraft
+
+// IMPORTANT: These are approximate average elevations for the regions, used for
+// calculating relative altitude of aircraft
 const REGION_ELEVATIONS_METERS = {
   calgary: 1084,
   alberta: 900,
@@ -75,6 +76,10 @@ export async function GET(request) {
 
   const selectedRegion =
     REGION_MAP_BOXES[requestedRegionKey] || REGION_MAP_BOXES.calgary;
+
+  const regionReferenceElevationMeters =
+    REGION_ELEVATIONS_METERS[requestedRegionKey] ??
+    REGION_ELEVATIONS_METERS.calgary;
 
   const openSkyApiUrl =
     `https://opensky-network.org/api/states/all` +
@@ -106,13 +111,25 @@ export async function GET(request) {
           return null;
         }
 
+        const altitudeMeters =
+          aircraftState?.[13] ?? aircraftState?.[7] ?? null;
+
+        const altitudeAglMeters =
+          typeof altitudeMeters === "number"
+            ? Math.max(
+                0,
+                Math.round(altitudeMeters - regionReferenceElevationMeters)
+              )
+            : null;
+
         return {
           aircraftIcao24: aircraftState?.[0],
           flightCallsign: aircraftState?.[1]?.trim() || null,
           originCountry: aircraftState?.[2] || null,
           longitude: longitude,
           latitude: latitude,
-          altitudeMeters: aircraftState?.[13] ?? aircraftState?.[7] ?? null,
+          altitudeMeters: altitudeMeters,
+          altitudeAglMeters: altitudeAglMeters,
           isOnGround: Boolean(aircraftState?.[8]),
           velocityMetersPerSecond: aircraftState?.[9] ?? null,
           headingDegrees: aircraftState?.[10] ?? 0,

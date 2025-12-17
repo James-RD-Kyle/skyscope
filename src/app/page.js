@@ -56,7 +56,7 @@ export default function Home() {
               ["coalesce", ["get", "callsign"], "UNKNOWN"],
               { "font-scale": 1.2 },
               "\n",
-              ["concat", ["to-string", ["round", ["get", "altitudeMeters"]]],
+              ["concat", ["to-string", ["round", ["get", "altitudeAglMeters"]]],
                 " m",
               ],
               { "font-scale": 1.0 },
@@ -73,7 +73,7 @@ export default function Home() {
             "icon-color": [
               "interpolate",
               ["linear"],
-              ["coalesce", ["get", "altitudeMeters"], 0],
+              ["coalesce", ["get", "altitudeAglMeters"], 0],
               0,
               "#ff3b30",
               2000,
@@ -129,6 +129,7 @@ export default function Home() {
               aircraftIcao24: aircraft.aircraftIcao24,
               callsign: aircraft.flightCallsign,
               altitudeMeters: aircraft.altitudeMeters,
+              altitudeAglMeters: aircraft.altitudeAglMeters,
               velocityMetersPerSecond: aircraft.velocityMetersPerSecond,
               headingDegrees: aircraft.headingDegrees,
               isOnGround: aircraft.isOnGround,
@@ -144,7 +145,7 @@ export default function Home() {
       });
     });
   }, []);
-  
+
   return (
     <div className="h-screen w-screen">
       <div ref={mapContainerRef} className="h-full w-full" />
