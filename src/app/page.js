@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { SearchBar } from "./components/searchbar.js";
+import { useEffect, useRef, useState} from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 
@@ -9,6 +10,7 @@ mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 export default function Home() {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const [searchText, setSearchText] = useState("");
 
   // Initializes map only once
   useEffect(() => {
@@ -131,7 +133,7 @@ export default function Home() {
             });
 
             const data = await response.json();
-            const aircraft = data.aircraft;
+            const aircraft = data.aircraft ?? [];
 
             const featureArray = aircraft.map((aircraft) => ({
               type: "Feature",
@@ -163,8 +165,8 @@ export default function Home() {
         }
 
         fetchFlightData();
-        // Fetch flight data every 5 seconds
-        fetchInterval = setInterval(fetchFlightData, 5000);
+        // Fetch flight data every 30 seconds
+        // fetchInterval = setInterval(fetchFlightData, 30000);
       });
     });
     // Cleanup UseEffect Function
@@ -178,6 +180,7 @@ export default function Home() {
 
   return (
     <div className="h-screen w-screen">
+      <SearchBar value={searchText} onChange={setSearchText} />
       <div ref={mapContainerRef} className="h-full w-full" />
     </div>
   );

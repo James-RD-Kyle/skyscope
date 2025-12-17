@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+export const runtime = "nodejs";
 
 /*
  * Reference:
@@ -68,6 +69,69 @@ const REGION_ELEVATIONS_METERS = {
   toronto: 76,
 };
 
+/**
+ * OpenSky OAuth2 Client Credentials token.
+ */
+let cachedOpenSkyAccessToken = null;
+let cachedOpenSkyAccessTokenExpiresAtMs = 0;
+
+async function getOpenSkyAccessToken() {
+  const openSkyClientId = process.env.OPENSKY_CLIENT_ID;
+  const openSkyClientSecret = process.env.OPENSKY_CLIENT_SECRET;
+
+  if (!openSkyClientId || !openSkyClientSecret) {
+    throw new Error("Missing OPENSKY_CLIENT_ID or OPENSKY_CLIENT_SECRET");
+  }
+
+  const currentTimeMs = Date.now();
+
+  // Reuse token if still valid (30s safety buffer)
+  if (
+    cachedOpenSkyAccessToken &&
+    currentTimeMs < cachedOpenSkyAccessTokenExpiresAtMs - 30_000
+  ) {
+    return cachedOpenSkyAccessToken;
+  }
+
+  const tokenResponse = await fetch(
+    "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: openSkyClientId,
+        client_secret: openSkyClientSecret,
+      }),
+      cache: "no-store",
+    }
+  );
+
+  if (!tokenResponse.ok) {
+    const tokenErrorBodyText = await tokenResponse.text();
+    throw new Error(
+      `OpenSky token request failed: ${tokenResponse.status} ${tokenErrorBodyText.slice(
+        0,
+        300
+      )}`
+    );
+  }
+
+  const tokenJson = await tokenResponse.json();
+
+  cachedOpenSkyAccessToken = tokenJson.access_token ?? null;
+
+  const expiresInSeconds = Number(tokenJson.expires_in ?? 1800);
+  cachedOpenSkyAccessTokenExpiresAtMs =
+    currentTimeMs + Math.max(0, expiresInSeconds) * 1000;
+
+  if (!cachedOpenSkyAccessToken) {
+    throw new Error("OpenSky token response missing access_token");
+  }
+
+  return cachedOpenSkyAccessToken;
+}
+
 export async function GET(request) {
   const requestUrl = new URL(request.url);
   const requestedRegionKey = (
@@ -89,14 +153,26 @@ export async function GET(request) {
     `&lomax=${selectedRegion.maximumLongitude}`;
 
   try {
+    const openSkyAccessToken = await getOpenSkyAccessToken();
+
     const openSkyResponse = await fetch(openSkyApiUrl, {
       cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${openSkyAccessToken}`,
+      },
     });
 
+    // log the upstream status code
+    console.log("OpenSky status:", openSkyResponse.status);
+
     if (!openSkyResponse.ok) {
+      const upstreamBodyText = await openSkyResponse.text();
+      console.log("OpenSky error body:", upstreamBodyText.slice(0, 300));
+
+      // Return the upstream status so frontend can react (e.g., 429 Too Many Request, I ran out of calls before I made an account)
       return NextResponse.json(
-        { error: "Failed to fetch data from OpenSky Network" },
-        { status: 502 }
+        { aircraft: [], error: "Failed to fetch data from OpenSky Network" },
+        { status: openSkyResponse.status }
       );
     }
 
@@ -146,8 +222,11 @@ export async function GET(request) {
       dataTimestamp: openSkyData.time ?? null,
     });
   } catch (error) {
+    //log the error thrown
+    console.error("OpenSky fetch threw:", error);
+
     return NextResponse.json(
-      { error: "Unexpected error while fetching aircraft data" },
+      { aircraft: [], error: "Unexpected error while fetching aircraft data" },
       { status: 500 }
     );
   }
