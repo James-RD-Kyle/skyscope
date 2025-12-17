@@ -223,12 +223,18 @@ export async function GET(request) {
       aircraft,
       dataTimestamp: openSkyData.time ?? null,
     });
-  } catch (error) {
-    console.error("OpenSky fetch threw:", error);
+} catch (error) {
+  console.error("OpenSky fetch threw:", error);
 
-    return NextResponse.json(
-      { aircraft: [], error: "Unexpected error while fetching aircraft data" },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json(
+    {
+      aircraft: [],
+      error: "Unexpected error while fetching aircraft data",
+      debug: String(error?.message || error),
+      causeCode: error?.cause?.code ?? null,
+    },
+    { status: 500 }
+  );
+}
+
 }
