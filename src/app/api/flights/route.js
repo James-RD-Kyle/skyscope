@@ -134,12 +134,13 @@ async function fetchWithTimeoutAndRetry(
 export async function GET(request) {
   try {
     const url = new URL(request.url);
-    const regionKey = (url.searchParams.get("region") || "calgary").toLowerCase();
+    const regionKey = (
+      url.searchParams.get("region") || "calgary"
+    ).toLowerCase();
 
     const region = REGION_MAP_BOXES[regionKey] || REGION_MAP_BOXES.calgary;
     const regionElevation =
-      REGION_ELEVATIONS_METERS[regionKey] ??
-      REGION_ELEVATIONS_METERS.calgary;
+      REGION_ELEVATIONS_METERS[regionKey] ?? REGION_ELEVATIONS_METERS.calgary;
 
     const openSkyApiUrl =
       `https://opensky-network.org/api/states/all` +
@@ -208,7 +209,12 @@ export async function GET(request) {
     console.error("OpenSky API failed:", error);
 
     return NextResponse.json(
-      { aircraft: [], error: "Unexpected error while fetching aircraft data" },
+      {
+        aircraft: [],
+        error: "Unexpected error while fetching aircraft data",
+        debug: String(error?.message || error),
+        causeCode: error?.cause?.code ?? null,
+      },
       { status: 500 }
     );
   }
