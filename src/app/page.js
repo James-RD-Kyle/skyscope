@@ -1,16 +1,20 @@
 "use client";
 
 import { SearchBar } from "./components/searchbar.js";
-import { useEffect, useRef, useState} from "react";
+import { AircraftSidePanel } from "./components/aircraftsidepanel.js";
+import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
+import Image from "next/image.js";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
 export default function Home() {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+
   const [searchText, setSearchText] = useState("");
+  const [selectedAircraft, setSelectedAircraft] = useState(null);
 
   // Initializes map only once
   useEffect(() => {
@@ -122,6 +126,47 @@ export default function Home() {
           },
         });
 
+        //set React state (side panel) for plane information
+        function showPlaneSidePanel(event) {
+          const clickedFeature = event.features?.[0];
+          if (!clickedFeature) return;
+
+          const [longitude, latitude] = clickedFeature.geometry.coordinates;
+
+          setSelectedAircraft({
+            aircraftIcao24: clickedFeature.properties?.aircraftIcao24 ?? null,
+            flightCallsign: clickedFeature.properties?.callsign ?? null,
+            altitudeMeters: clickedFeature.properties?.altitudeMeters ?? null,
+            altitudeAglMeters:
+              clickedFeature.properties?.altitudeAglMeters ?? null,
+            velocityMetersPerSecond:
+              clickedFeature.properties?.velocityMetersPerSecond ?? null,
+            headingDegrees: clickedFeature.properties?.headingDegrees ?? null,
+            isOnGround: clickedFeature.properties?.isOnGround ?? null,
+            longitude,
+            latitude,
+          });
+        }
+
+        mapRef.current.on("click", "flights-airplanes", showPlaneSidePanel);
+        mapRef.current.on("click", "flights-dots", showPlaneSidePanel);
+
+        // Pointer cursor on hover (both zoom modes)
+        ["flights-airplanes", "flights-dots"].forEach((layerId) => {
+          mapRef.current.on("mouseenter", layerId, () => {
+            mapRef.current.getCanvas().style.cursor = "pointer";
+          });
+          mapRef.current.on("mouseleave", layerId, () => {
+            mapRef.current.getCanvas().style.cursor = "";
+          });
+        });
+        mapRef.current.on("click", (event) => {
+          const features = mapRef.current.queryRenderedFeatures(event.point, {
+            layers: ["flights-airplanes", "flights-dots"],
+          });
+          if (!features.length) setSelectedAircraft(null);
+        });
+
         async function fetchFlightData() {
           try {
             if (abortController) abortController.abort();
@@ -169,6 +214,7 @@ export default function Home() {
         // fetchInterval = setInterval(fetchFlightData, 30000);
       });
     });
+
     // Cleanup UseEffect Function
     return () => {
       if (fetchInterval) clearInterval(fetchInterval);
@@ -179,8 +225,26 @@ export default function Home() {
   }, []);
 
   return (
-    <div className="h-screen w-screen">
+    <div className="h-screen w-screen relative">
+      <div className="absolute top-4 left-4 z-20 pointer-events-none">
+        <Image
+          src="/SkyScope.png"
+          alt="SkyScope"
+          width={200}
+          height={200}
+          priority
+        />
+      </div>
+
       <SearchBar value={searchText} onChange={setSearchText} />
+
+      <div className="absolute right-4 top-16 z-20 w-80 rounded-xl bg-white/95 shadow-lg backdrop-blur dark:bg-zinc-900/95">
+        <AircraftSidePanel
+          aircraft={selectedAircraft}
+          onClose={() => setSelectedAircraft(null)}
+        />
+      </div>
+
       <div ref={mapContainerRef} className="h-full w-full" />
     </div>
   );
