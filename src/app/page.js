@@ -223,7 +223,7 @@ export default function Home() {
 
         fetchFlightData();
         // Fetch flight data every 30 seconds
-        // fetchInterval = setInterval(fetchFlightData, 30000);
+        fetchInterval = setInterval(fetchFlightData, 30000);
       });
     });
 
