@@ -58,6 +58,14 @@ const REGION_MAP_BOXES = {
     mapZoom: 8,
   },
 };
+//IMPORTANT: These are approximate average elevations for the regions, used for
+//calculating relative altitude of aircraft
+const REGION_ELEVATIONS_METERS = {
+  calgary: 1084,
+  alberta: 900,
+  vancouver: 70,
+  toronto: 76,
+};
 
 export async function GET(request) {
   const requestUrl = new URL(request.url);

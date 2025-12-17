@@ -10,7 +10,7 @@ export default function Home() {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
 
-  // initializes map only once
+  // Initializes map only once
   useEffect(() => {
     if (mapRef.current) return;
 
@@ -29,26 +29,47 @@ export default function Home() {
           features: [],
         },
       });
+
       mapRef.current.loadImage("/airplane.png", (error, image) => {
         if (error || !image) {
           console.error("Failed to load airplane icon:", error);
           return;
         }
+
         if (!mapRef.current.hasImage("airplane")) {
           mapRef.current.addImage("airplane", image, { sdf: true });
         }
+
         mapRef.current.addLayer({
-          id: "flights-layer",
+          id: "flights-airplanes",
           type: "symbol",
           source: "flights",
+          minzoom: 9,
           layout: {
             "icon-image": "airplane",
-            "icon-size": 1.2,
+            "icon-size": 0.13,
             "icon-allow-overlap": true,
             "icon-rotate": ["coalesce", ["get", "headingDegrees"], 0],
             "icon-rotation-alignment": "map",
+            "text-field": [
+              "format",
+              ["coalesce", ["get", "callsign"], "UNKNOWN"],
+              { "font-scale": 1.2 },
+              "\n",
+              ["concat", ["to-string", ["round", ["get", "altitudeMeters"]]],
+                " m",
+              ],
+              { "font-scale": 1.0 },
+            ],
+            "text-size": 11,
+            "text-offset": [0, 1.2],
+            "text-anchor": "top",
+            "text-allow-overlap": true,
           },
           paint: {
+            "text-color": "#ffffff",
+            "text-halo-color": "#000000",
+            "text-halo-width": 1,
             "icon-color": [
               "interpolate",
               ["linear"],
@@ -64,8 +85,32 @@ export default function Home() {
               12000,
               "#bf5af2",
             ],
-            "icon-halo-color": "#000",
-            "icon-halo-width": 1,
+          },
+        });
+        mapRef.current.addLayer({
+          id: "flights-dots",
+          type: "circle",
+          source: "flights",
+          maxzoom: 9,
+          paint: {
+            "circle-radius": ["interpolate", ["linear"], ["zoom"], 4, 2, 9, 4],
+            "circle-color": [
+              "interpolate",
+              ["linear"],
+              ["coalesce", ["get", "altitudeMeters"], 0],
+              0,
+              "#ff3b30",
+              2000,
+              "#ffcc00",
+              6000,
+              "#34c759",
+              10000,
+              "#0a84ff",
+              12000,
+              "#bf5af2",
+            ],
+            "circle-stroke-width": 1,
+            "circle-stroke-color": "#000",
           },
         });
 
@@ -73,6 +118,7 @@ export default function Home() {
           const response = await fetch("/api/flights?region=calgary");
           const data = await response.json();
           const aircraft = data.aircraft;
+
           const featureArray = aircraft.map((aircraft) => ({
             type: "Feature",
             geometry: {
@@ -98,6 +144,7 @@ export default function Home() {
       });
     });
   }, []);
+  
   return (
     <div className="h-screen w-screen">
       <div ref={mapContainerRef} className="h-full w-full" />
