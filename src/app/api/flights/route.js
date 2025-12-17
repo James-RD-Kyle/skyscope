@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const maxDuration = 30;
 
 /*
  * Reference:
@@ -12,6 +10,8 @@ export const maxDuration = 30;
  * Information Processing in Sensor Networks (IPSN), pages 83–94, April 2014.
  * The OpenSky Network, https://opensky-network.org
  */
+
+export const dynamic = "force-dynamic";
 
 /**
  * Preset geographic map boxes for supported regions.
@@ -154,25 +154,21 @@ export async function GET(request) {
   try {
     const openSkyAccessToken = await getOpenSkyAccessToken();
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25_000);
-
     const openSkyResponse = await fetch(openSkyApiUrl, {
       cache: "no-store",
       headers: {
         Authorization: `Bearer ${openSkyAccessToken}`,
       },
-      signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-
+    // log the upstream status code
     console.log("OpenSky status:", openSkyResponse.status);
 
     if (!openSkyResponse.ok) {
       const upstreamBodyText = await openSkyResponse.text();
       console.log("OpenSky error body:", upstreamBodyText.slice(0, 300));
 
+      // Return the upstream status so frontend can react (e.g., 429 Too Many Request, I ran out of calls before I made an account)
       return NextResponse.json(
         { aircraft: [], error: "Failed to fetch data from OpenSky Network" },
         { status: openSkyResponse.status }
@@ -190,7 +186,8 @@ export async function GET(request) {
           return null;
         }
 
-        const altitudeMeters = aircraftState?.[13] ?? aircraftState?.[7] ?? null;
+        const altitudeMeters =
+          aircraftState?.[13] ?? aircraftState?.[7] ?? null;
 
         const altitudeAglMeters =
           typeof altitudeMeters === "number"
@@ -223,18 +220,27 @@ export async function GET(request) {
       aircraft,
       dataTimestamp: openSkyData.time ?? null,
     });
-} catch (error) {
-  console.error("OpenSky fetch threw:", error);
+  } catch (error) {
+    console.error("OpenSky fetch threw:", error);
 
-  return NextResponse.json(
-    {
-      aircraft: [],
-      error: "Unexpected error while fetching aircraft data",
-      debug: String(error?.message || error),
-      causeCode: error?.cause?.code ?? null,
-    },
-    { status: 500 }
-  );
-}
-
+    const cause = error?.cause;
+    return NextResponse.json(
+      {
+        aircraft: [],
+        error: "Unexpected error while fetching aircraft data",
+        debug: String(error?.message || error),
+        cause: cause
+          ? {
+              name: cause.name,
+              code: cause.code,
+              errno: cause.errno,
+              syscall: cause.syscall,
+              address: cause.address,
+              port: cause.port,
+            }
+          : null,
+      },
+      { status: 500 }
+    );
+  }
 }
