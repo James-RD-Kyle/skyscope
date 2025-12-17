@@ -5,7 +5,7 @@ import { AircraftSidePanel } from "./components/aircraftsidepanel.js";
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
-import Image from "next/image.js";
+import Image from "next/image";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
@@ -223,7 +223,11 @@ export default function Home() {
 
         fetchFlightData();
         // Fetch flight data every 30 seconds
-        fetchInterval = setInterval(fetchFlightData, 30000);
+        fetchInterval = setInterval(() => {
+          if (document.visibilityState === "visible") {
+            fetchFlightData();
+          }
+        }, 30000);
       });
     });
 
