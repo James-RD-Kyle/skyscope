@@ -1,7 +1,7 @@
 "use client";
 
-import { SearchBar } from "./components/searchbar.js";
-import { AircraftSidePanel } from "./components/aircraftsidepanel.js";
+import { SearchBar } from "./components/searchbar";
+import { AircraftSidePanel } from "./components/aircraftsidepanel";
 import { useEffect, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
