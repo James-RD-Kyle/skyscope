@@ -12,6 +12,7 @@ mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 export default function Home() {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const latestAircraftRef = useRef([]);
 
   const [searchText, setSearchText] = useState("");
   const [selectedAircraft, setSelectedAircraft] = useState(null);
@@ -62,16 +63,26 @@ export default function Home() {
             "icon-rotation-alignment": "map",
             "text-field": [
               "format",
-              ["coalesce", ["get", "callsign"], "UNKNOWN"],
+              [
+                "case",
+                [">", ["length", ["coalesce", ["get", "callsign"], ""]], 0],
+                ["get", "callsign"],
+                "UNKNOWN",
+              ],
               { "font-scale": 1.2 },
               "\n",
+              {},
               [
                 "concat",
-                ["to-string", ["round", ["get", "altitudeAglMeters"]]],
+                [
+                  "to-string",
+                  ["round", ["coalesce", ["get", "altitudeAglMeters"], 0]],
+                ],
                 " m",
               ],
               { "font-scale": 1.0 },
             ],
+
             "text-size": 11,
             "text-offset": [0, 1.2],
             "text-anchor": "top",
@@ -179,6 +190,7 @@ export default function Home() {
 
             const data = await response.json();
             const aircraft = data.aircraft ?? [];
+            latestAircraftRef.current = aircraft;
 
             const featureArray = aircraft.map((aircraft) => ({
               type: "Feature",
@@ -223,6 +235,33 @@ export default function Home() {
       mapRef.current = null;
     };
   }, []);
+  function handleSearch(searchValue) {
+    const query = (searchValue ?? "").trim().toUpperCase();
+    if (!query) return;
+
+    const aircraftList = latestAircraftRef.current ?? [];
+
+    // normalize callsign (OpenSky often has trailing spaces)
+    const normalize = (text) => (text ?? "").trim().toUpperCase();
+
+    const found =
+      aircraftList.find((a) => normalize(a.flightCallsign) === query) ||
+      aircraftList.find((a) => normalize(a.flightCallsign).includes(query));
+
+    if (!found) {
+      setSelectedAircraft(null);
+      return;
+    }
+    //Setting the SideBar
+    setSelectedAircraft(found);
+
+    // Pan to the aircraft on the map
+    mapRef.current?.flyTo({
+      center: [found.longitude, found.latitude],
+      zoom: Math.max(mapRef.current.getZoom(), 10),
+      essential: true,
+    });
+  }
 
   return (
     <div className="h-screen w-screen relative">
@@ -236,7 +275,11 @@ export default function Home() {
         />
       </div>
 
-      <SearchBar value={searchText} onChange={setSearchText} />
+      <SearchBar
+        value={searchText}
+        onChange={setSearchText}
+        onSearch={handleSearch}
+      />
 
       <div className="absolute right-4 top-16 z-20 w-80 rounded-xl bg-white/95 shadow-lg backdrop-blur dark:bg-zinc-900/95">
         <AircraftSidePanel
