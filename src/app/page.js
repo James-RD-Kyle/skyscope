@@ -21,6 +21,9 @@ export default function Home() {
       zoom: 8,
     });
 
+    let abortController = null;
+    let fetchInterval = null;
+
     mapRef.current.on("load", () => {
       mapRef.current.addSource("flights", {
         type: "geojson",
@@ -56,7 +59,9 @@ export default function Home() {
               ["coalesce", ["get", "callsign"], "UNKNOWN"],
               { "font-scale": 1.2 },
               "\n",
-              ["concat", ["to-string", ["round", ["get", "altitudeAglMeters"]]],
+              [
+                "concat",
+                ["to-string", ["round", ["get", "altitudeAglMeters"]]],
                 " m",
               ],
               { "font-scale": 1.0 },
@@ -87,6 +92,7 @@ export default function Home() {
             ],
           },
         });
+
         mapRef.current.addLayer({
           id: "flights-dots",
           type: "circle",
@@ -115,35 +121,59 @@ export default function Home() {
         });
 
         async function fetchFlightData() {
-          const response = await fetch("/api/flights?region=calgary");
-          const data = await response.json();
-          const aircraft = data.aircraft;
+          try {
+            if (abortController) abortController.abort();
+            abortController = new AbortController();
 
-          const featureArray = aircraft.map((aircraft) => ({
-            type: "Feature",
-            geometry: {
-              type: "Point",
-              coordinates: [aircraft.longitude, aircraft.latitude],
-            },
-            properties: {
-              aircraftIcao24: aircraft.aircraftIcao24,
-              callsign: aircraft.flightCallsign,
-              altitudeMeters: aircraft.altitudeMeters,
-              altitudeAglMeters: aircraft.altitudeAglMeters,
-              velocityMetersPerSecond: aircraft.velocityMetersPerSecond,
-              headingDegrees: aircraft.headingDegrees,
-              isOnGround: aircraft.isOnGround,
-            },
-          }));
-          const featureCollection = {
-            type: "FeatureCollection",
-            features: featureArray,
-          };
-          mapRef.current.getSource("flights").setData(featureCollection);
+            const response = await fetch("/api/flights?region=calgary", {
+              signal: abortController.signal,
+              cache: "no-store",
+            });
+
+            const data = await response.json();
+            const aircraft = data.aircraft;
+
+            const featureArray = aircraft.map((aircraft) => ({
+              type: "Feature",
+              geometry: {
+                type: "Point",
+                coordinates: [aircraft.longitude, aircraft.latitude],
+              },
+              properties: {
+                aircraftIcao24: aircraft.aircraftIcao24,
+                callsign: aircraft.flightCallsign,
+                altitudeMeters: aircraft.altitudeMeters,
+                altitudeAglMeters: aircraft.altitudeAglMeters,
+                velocityMetersPerSecond: aircraft.velocityMetersPerSecond,
+                headingDegrees: aircraft.headingDegrees,
+                isOnGround: aircraft.isOnGround,
+              },
+            }));
+
+            const featureCollection = {
+              type: "FeatureCollection",
+              features: featureArray,
+            };
+
+            mapRef.current.getSource("flights").setData(featureCollection);
+          } catch (error) {
+            if (error?.name === "AbortError") return;
+            console.error("Failed to fetch flight data:", error);
+          }
         }
+
         fetchFlightData();
+        // Fetch flight data every 5 seconds
+        fetchInterval = setInterval(fetchFlightData, 5000);
       });
     });
+    // Cleanup UseEffect Function
+    return () => {
+      if (fetchInterval) clearInterval(fetchInterval);
+      if (abortController) abortController.abort();
+      if (mapRef.current) mapRef.current.remove();
+      mapRef.current = null;
+    };
   }, []);
 
   return (
