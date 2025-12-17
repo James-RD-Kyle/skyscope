@@ -223,11 +223,22 @@ export async function GET(request) {
   } catch (error) {
     console.error("OpenSky fetch threw:", error);
 
+    const cause = error?.cause;
     return NextResponse.json(
       {
         aircraft: [],
         error: "Unexpected error while fetching aircraft data",
         debug: String(error?.message || error),
+        cause: cause
+          ? {
+              name: cause.name,
+              code: cause.code,
+              errno: cause.errno,
+              syscall: cause.syscall,
+              address: cause.address,
+              port: cause.port,
+            }
+          : null,
       },
       { status: 500 }
     );
