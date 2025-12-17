@@ -110,10 +110,9 @@ async function getOpenSkyAccessToken() {
   if (!tokenResponse.ok) {
     const tokenErrorBodyText = await tokenResponse.text();
     throw new Error(
-      `OpenSky token request failed: ${tokenResponse.status} ${tokenErrorBodyText.slice(
-        0,
-        300
-      )}`
+      `OpenSky token request failed: ${
+        tokenResponse.status
+      } ${tokenErrorBodyText.slice(0, 300)}`
     );
   }
 
@@ -222,11 +221,14 @@ export async function GET(request) {
       dataTimestamp: openSkyData.time ?? null,
     });
   } catch (error) {
-    //log the error thrown
     console.error("OpenSky fetch threw:", error);
 
     return NextResponse.json(
-      { aircraft: [], error: "Unexpected error while fetching aircraft data" },
+      {
+        aircraft: [],
+        error: "Unexpected error while fetching aircraft data",
+        debug: String(error?.message || error),
+      },
       { status: 500 }
     );
   }
